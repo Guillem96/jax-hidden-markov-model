@@ -1,6 +1,8 @@
 import jax
 import jax.numpy as np
 
+from hmm import utils
+
 
 class HiddenMarkovModel(object):
 
@@ -92,3 +94,45 @@ class HiddenMarkovModel(object):
         else:
             known_Q_prob = start_prob
         return known_Q_prob * np.prod(self.B[known_Q, O])
+    
+    def sample(self, key: np.ndarray, timesteps: int) -> np.ndarray:
+        """
+        Sample an observation at each timestep according to the defined
+        probabilites
+
+        Parameters
+        ----------
+        key: np.ndarray
+            Random seed to do the sampling
+        timesteps: int
+            Number of observations to sample
+        
+        Returns
+        -------
+        np.ndarray
+            An array of shape [timesteps,] containing the observations at each
+            timesteps
+        """
+        def sample_observation(key, qt):
+            emission_probs = self.B[qt]
+            return utils.sample(key, self.O, emission_probs)
+        
+        def sample_qt(key, qt_1):
+            transition_probs = self.A[qt_1]
+            return utils.sample(key, self.Q, transition_probs)
+            
+        O = []
+
+        # Sample the initial hidden state according to pi prob distribution
+        key, subkey = jax.random.split(key)
+        q_0 = utils.sample(subkey, self.Q, self.pi)
+        qt = q_0
+        for t in range(timesteps):
+            key, b_key, q_key = jax.random.split(key, 3)
+            # At each hidden state qt, sample one observation according to 
+            # emission prob B
+            O.append(sample_observation(b_key, qt))
+            # Sample the next hidden state
+            qt = sample_qt(q_key, qt)
+        
+        return np.array(O)

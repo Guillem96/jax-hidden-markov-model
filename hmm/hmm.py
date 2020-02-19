@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+
+import itertools
+from typing import Mapping
+
 import jax
 import jax.numpy as np
 
@@ -136,3 +141,94 @@ class HiddenMarkovModel(object):
             qt = sample_qt(q_key, qt)
         
         return np.array(O)
+
+    def likelihood(self, O: np.ndarray) -> float:
+        """
+        Implementation of forward algorithm to compute the likelihood of 
+        the sequence of observations O
+
+        Parameters
+        ----------
+        O: np.ndarray
+            Sequence of observations
+        
+        Returns
+        -------
+        float
+            Likelihood of observing the specified sequence of observations
+        """
+        timesteps = len(O)
+        alpha = np.zeros((len(self.Q), timesteps))
+
+        # Compute the probabilities at timestep = 0
+        prob = self.pi[self.Q] * self.B[self.Q, O[0]]
+        alpha = jax.ops.index_update(alpha, jax.ops.index[self.Q, 0], prob)
+
+        for t in range(1, timesteps):
+            for qt in self.Q:
+                new_alpha = (alpha[qt, t - 1] * 
+                             self.A[qt, self.Q] * self.B[self.Q, O[t]])
+                alpha = jax.ops.index_add(
+                    alpha, jax.ops.index[self.Q, t], new_alpha)
+
+        return np.sum(alpha[:, -1])
+    
+    def draw(self, 
+             Q_idx2name: Mapping[int, str] = None,
+             O_idx2name: Mapping[int, str] = None) -> 'Digraph':
+        """
+        Draw the Hidden Markov Model using Graphviz
+
+        Parameters
+        ----------
+        Q_idx2name: Mapping[int, str], default None
+            Mapping from getting the name based on the hidden state idx
+        O_idx2name: Mapping[int, str], default None
+            Mapping to get the name based on the observation idx
+        
+        Returns
+        -------
+        graphviz.Digraph
+            The resulting graph of drawing the hidden markov model
+            The hidden states are filled with blue, and the observations
+            are filled with green.
+        """
+        # We don't want this dipendency as a must
+        from graphviz import Digraph
+        
+        graph = Digraph(name='Hidden Markov Model', format='svg')
+
+        # Add hidden states nodes
+        with graph.subgraph(name='hidden_states') as c:
+            c.node_attr.update(style='filled', color='lightblue')
+            for q in self.Q:
+                c.node('q-' + str(q), 
+                       label=(Q_idx2name and str(Q_idx2name[q])))
+        
+        # Draw the observations
+        with graph.subgraph(name='observations') as obs_g:
+            obs_g.graph_attr.update(rankdir='LR')
+            obs_g.node_attr.update(style='filled', color='#d3f0ce')
+            for o in self.O:
+                 obs_g.node('o-' + str(o), 
+                            label=(O_idx2name and str(O_idx2name[o])))
+
+        # Draw the starting node
+        graph.node('pi')
+        for i, start_prob in enumerate(self.pi):
+            graph.edge('pi', 'q-' + str(i), label=f'{start_prob:.2f}')
+
+        matrix_it = range(self.B.shape[0]), range(self.B.shape[1])
+        for i, j in itertools.product(*matrix_it): 
+            e_p = self.B[i, j]
+            if e_p > 0:
+                graph.edge('q-' + str(i), 
+                           'o-' + str(j), label=f'{e_p:.2f}')
+
+        matrix_it = range(self.A.shape[0]), range(self.A.shape[1])
+        for i, j in itertools.product(*matrix_it):
+            p = self.A[i, j]
+            if p > 0:
+                graph.edge('q-' + str(i), 'q-' + str(j), label=f'{p:.2f}')
+            
+        return graph

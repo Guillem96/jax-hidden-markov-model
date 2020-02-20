@@ -6,6 +6,10 @@ import jax.numpy as np
 from hmm import HiddenMarkovModel
 
 
+def decode_test(hmm: HiddenMarkovModel):  
+    print(hmm.decode(np.array([2, 0, 2])))
+    # print(f'Decodification of {[2, 0, 2]} is {likelihood:.3f}')
+
 def likelihood_test(hmm: HiddenMarkovModel):
     likelihood = hmm.likelihood(np.array([2, 0, 2]))
     print(f'Likelihood of {[2, 0, 2]} is {likelihood:.3f}')
@@ -52,4 +56,5 @@ if __name__ == "__main__":
     observation_sequence_test(hmm)
     sample_test(key, hmm)
     likelihood_test(hmm)
-    draw_test(hmm)
+    decode_test(hmm)
+    # draw_test(hmm)

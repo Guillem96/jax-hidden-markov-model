@@ -166,14 +166,58 @@ class HiddenMarkovModel(object):
 
         for t in range(1, timesteps):
             for qt in self.Q:
-                new_alpha = (alpha[qt, t - 1] * 
-                             self.A[qt, self.Q] * self.B[self.Q, O[t]])
+                new_alpha = (alpha[self.Q, t - 1] * 
+                             self.A[self.Q, qt] * self.B[qt, O[t]])
+                new_alpha = np.sum(new_alpha)
                 alpha = jax.ops.index_add(
-                    alpha, jax.ops.index[self.Q, t], new_alpha)
+                    alpha, jax.ops.index[qt, t], new_alpha)
 
         return np.sum(alpha[:, -1])
     
-    def draw(self, 
+    def decode(self, O: np.ndarray) -> np.ndarray:
+        """
+        Find the sequence of hidden states that maximizes the 
+        likelihood of observing the observervation sequence O
+
+        This method implements the Viterbi algorithm.
+
+        Parameters
+        ----------
+        O: np.ndarray
+            Sequence of observations 
+        
+        Returns
+        -------
+        Tuple[float, np.ndarray]
+            Returns a tuple containing the most probable sequence probability 
+            and the sequence of hidden states
+        """
+        timesteps = len(O)
+        v = np.zeros((len(self.Q), timesteps))
+        backpointer = np.zeros((len(self.Q), timesteps))
+
+        # Compute the probabilities at timestep = 0
+        prob = self.pi[self.Q] * self.B[self.Q, O[0]]
+        v = jax.ops.index_update(v, jax.ops.index[self.Q, 0], prob)
+
+        for t in range(1, timesteps):
+            for qt in self.Q:
+                new_vt = (v[self.Q, t - 1] * 
+                          self.A[self.Q, qt] * self.B[qt, O[t]])
+                v = jax.ops.index_update(
+                    v, jax.ops.index[qt, t], np.max(new_vt))
+
+                best_path = np.argmax(new_vt)
+                backpointer = jax.ops.index_update(
+                    backpointer, jax.ops.index[qt, t], best_path)
+        
+        best_prob = np.max(v[:, -1])
+        best_path_pointer = np.argmax(v[:, -1])
+
+        return best_prob, np.array(
+            backpointer[best_path_pointer, 1:].tolist() + [best_path_pointer])
+
+    def draw(self,
              Q_idx2name: Mapping[int, str] = None,
              O_idx2name: Mapping[int, str] = None) -> 'Digraph':
         """

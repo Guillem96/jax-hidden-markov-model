@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 
 import itertools
-from typing import Mapping
+from typing import Mapping, NamedTuple
 
 import jax
 import jax.numpy as np
 
-from hmm import utils
+from hmm import functional as F
 
 
-class HiddenMarkovModel(object):
+class HiddenMarkovModel(NamedTuple):
 
     """
     Class to represent a Hidden Markov Model (HMM)
@@ -32,53 +32,49 @@ class HiddenMarkovModel(object):
     pi: np.ndarray
         Probability distribution of starting at a concrete hidden state Q
     """
-    def __init__(self, 
-                 Q: np.ndarray,
-                 O: np.ndarray,
-                 A: np.ndarray = None,
-                 B: np.ndarray = None,
-                 pi: np.ndarray = None):
-        self.Q = Q
-        self.O = O
-        self.A = A
-        self.B = B
-        self.Q = Q
-        self.pi = pi
-    
-    def random_init(self, key: np.ndarray):
+    Q: np.ndarray
+    O: np.ndarray
+    A: np.ndarray = None
+    B: np.ndarray = None 
+    pi: np.ndarray = None
+
+    @classmethod
+    def random_init(cls, 
+                    key: np.ndarray, 
+                    Q: np.ndarray, 
+                    O: np.ndarray) -> 'HiddenMarkovModel':
         """
-        Randomly starts all the parameters that where not set during the 
-        instance creation
+        Class method to create a Hidden Markov Model with randomly initialized
+        parameters. The parameters that are randomly initialized are the 
+        transition matrix A, the emission probabilities B and the state prior 
+        distribution pi
         
         Parameters
         ----------
-        key: None
+        key: np.ndarray
             Random seed used to initialize the parameters
-        
-        Examples
-        --------
-        >>> hmm = HiddenMarkovModel(Q=...)
-        >>> key = jax.random.PRNGKey(0)
-        >>> hmm.init_random(key) # Here A, B are randomly initialized
+        Q: np.ndarray
+            Set of hidden states
+        O: np.ndarray
+            Vocabulary of possible observations
         """
-        if self.A is None:
-            key, subkey = jax.random.split(key)
-            self.A = jax.random.uniform(
-                key, shape=(self.Q.shape[0],) * 2)
-        
-        if self.B is None:
-            key, subkey = jax.random.split(key)
-            self.B = jax.random.uniform(
-                key, shape=(self.Q.shape[0], self.O.shape[0]) * 2)
-        
-        return self
+        key, A_key, B_key, pi_key = jax.random.split(key, 4)
+
+        init_fn = jax.nn.initializers.uniform()
+        A = init_fn(A_key, shape=(self.Q.shape,) * 2)
+        B = init_fn(B_key, shape=(self.Q.shape, self.O.shape))
+        pi = init_fn(pi_key, shape=(self.Q.shape,))
+
+        return cls(Q=Q, O=O, A=A, B=B, pi=pi)
+    
             
     def observations_sequence_proba(self, 
                                     O: np.ndarray,
                                     known_Q: np.ndarray) -> float:
         """
-        Given that A, B and the sequence hidden states are known, we can compute
-        the probability of observing the given observation sequence (O)
+        Given that A, B and the sequence of hidden states are known, 
+        we can compute the probability of observing the given observation 
+        sequence (O)
 
         Parameters
         ----------
@@ -92,13 +88,7 @@ class HiddenMarkovModel(object):
         float
             The probability of observing O
         """
-        start_prob = self.pi[known_Q[0]]
-        if known_Q.shape[0] > 1:
-            transitions = np.array(list(zip(known_Q[:-1], known_Q[1:])))
-            known_Q_prob = start_prob * np.prod(self.A[transitions])
-        else:
-            known_Q_prob = start_prob
-        return known_Q_prob * np.prod(self.B[known_Q, O])
+        return F.observations_sequence_proba(self, O, known_Q)
     
     def sample(self, key: np.ndarray, timesteps: int) -> np.ndarray:
         """
@@ -118,29 +108,7 @@ class HiddenMarkovModel(object):
             An array of shape [timesteps,] containing the observations at each
             timesteps
         """
-        def sample_observation(key, qt):
-            emission_probs = self.B[qt]
-            return utils.sample(key, self.O, emission_probs)
-        
-        def sample_qt(key, qt_1):
-            transition_probs = self.A[qt_1]
-            return utils.sample(key, self.Q, transition_probs)
-            
-        O = []
-
-        # Sample the initial hidden state according to pi prob distribution
-        key, subkey = jax.random.split(key)
-        q_0 = utils.sample(subkey, self.Q, self.pi)
-        qt = q_0
-        for t in range(timesteps):
-            key, b_key, q_key = jax.random.split(key, 3)
-            # At each hidden state qt, sample one observation according to 
-            # emission prob B
-            O.append(sample_observation(b_key, qt))
-            # Sample the next hidden state
-            qt = sample_qt(q_key, qt)
-        
-        return np.array(O)
+        return F.sample(self, key, timesteps)
 
     def likelihood(self, O: np.ndarray) -> float:
         """
@@ -152,28 +120,17 @@ class HiddenMarkovModel(object):
         O: np.ndarray
             Sequence of observations
         
+        reduce: bool, default True
+            If set to true the method just returns the likelihood of the 
+            sequence, otherwise, it returns the whole trellis used to compute the
+            sequence probability
         Returns
         -------
         float
             Likelihood of observing the specified sequence of observations
         """
-        timesteps = len(O)
-        alpha = np.zeros((len(self.Q), timesteps))
+        return F.likelihood(self, O)
 
-        # Compute the probabilities at timestep = 0
-        prob = self.pi[self.Q] * self.B[self.Q, O[0]]
-        alpha = jax.ops.index_update(alpha, jax.ops.index[self.Q, 0], prob)
-
-        for t in range(1, timesteps):
-            for qt in self.Q:
-                new_alpha = (alpha[self.Q, t - 1] * 
-                             self.A[self.Q, qt] * self.B[qt, O[t]])
-                new_alpha = np.sum(new_alpha)
-                alpha = jax.ops.index_add(
-                    alpha, jax.ops.index[qt, t], new_alpha)
-
-        return np.sum(alpha[:, -1])
-    
     def decode(self, O: np.ndarray) -> np.ndarray:
         """
         Find the sequence of hidden states that maximizes the 
@@ -192,30 +149,7 @@ class HiddenMarkovModel(object):
             Returns a tuple containing the most probable sequence probability 
             and the sequence of hidden states
         """
-        timesteps = len(O)
-        v = np.zeros((len(self.Q), timesteps))
-        backpointer = np.zeros((len(self.Q), timesteps))
-
-        # Compute the probabilities at timestep = 0
-        prob = self.pi[self.Q] * self.B[self.Q, O[0]]
-        v = jax.ops.index_update(v, jax.ops.index[self.Q, 0], prob)
-
-        for t in range(1, timesteps):
-            for qt in self.Q:
-                new_vt = (v[self.Q, t - 1] * 
-                          self.A[self.Q, qt] * self.B[qt, O[t]])
-                v = jax.ops.index_update(
-                    v, jax.ops.index[qt, t], np.max(new_vt))
-
-                best_path = np.argmax(new_vt)
-                backpointer = jax.ops.index_update(
-                    backpointer, jax.ops.index[qt, t], best_path)
-        
-        best_prob = np.max(v[:, -1])
-        best_path_pointer = np.argmax(v[:, -1])
-
-        return best_prob, np.array(
-            backpointer[best_path_pointer, 1:].tolist() + [best_path_pointer])
+        return F.decode(self, O)
 
     def draw(self,
              Q_idx2name: Mapping[int, str] = None,

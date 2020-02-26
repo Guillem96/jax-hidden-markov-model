@@ -16,10 +16,6 @@ class HiddenMarkovModel(NamedTuple):
 
     Parameters
     ----------
-    Q: np.ndarray
-        Set of hidden states
-    O: np.ndarray
-        Set of possible observations
     A: np.ndarray, default None
         Transmission probabilities. The transmission probabilities are 
         represented using a matrix of shape [len(Q), len(Q)] and the element
@@ -32,8 +28,6 @@ class HiddenMarkovModel(NamedTuple):
     pi: np.ndarray
         Probability distribution of starting at a concrete hidden state Q
     """
-    Q: np.ndarray
-    O: np.ndarray
     A: np.ndarray = None
     B: np.ndarray = None 
     pi: np.ndarray = None
@@ -41,8 +35,8 @@ class HiddenMarkovModel(NamedTuple):
     @classmethod
     def random_init(cls, 
                     key: np.ndarray, 
-                    Q: np.ndarray, 
-                    O: np.ndarray) -> 'HiddenMarkovModel':
+                    n_hidden_states: int, 
+                    n_observations: int) -> 'HiddenMarkovModel':
         """
         Class method to create a Hidden Markov Model with randomly initialized
         parameters. The parameters that are randomly initialized are the 
@@ -53,19 +47,19 @@ class HiddenMarkovModel(NamedTuple):
         ----------
         key: np.ndarray
             Random seed used to initialize the parameters
-        Q: np.ndarray
-            Set of hidden states
-        O: np.ndarray
-            Vocabulary of possible observations
+        n_hidden_states: int
+            Number of possible hidden states
+        n_observations: np.ndarray
+            Number of possible observations
         """
         key, A_key, B_key, pi_key = jax.random.split(key, 4)
 
         init_fn = jax.nn.initializers.uniform()
-        A = init_fn(A_key, shape=(self.Q.shape,) * 2)
-        B = init_fn(B_key, shape=(self.Q.shape, self.O.shape))
-        pi = init_fn(pi_key, shape=(self.Q.shape,))
+        A = init_fn(A_key, shape=(n_hidden_states,) * 2)
+        B = init_fn(B_key, shape=(n_hidden_states, n_observations))
+        pi = init_fn(pi_key, shape=(n_hidden_states,))
 
-        return cls(Q=Q, O=O, A=A, B=B, pi=pi)
+        return cls(A=A, B=B, pi=pi)
     
             
     def observations_sequence_proba(self, 

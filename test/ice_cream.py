@@ -40,10 +40,8 @@ if __name__ == "__main__":
     key = jax.random.PRNGKey(0)
 
     Q_names = ['hot', 'cold']
-    Q = np.array([0, 1])
-
+    
     pi = np.array([.8, .2])
-    O = np.arange(3) # [1, 2, 3]
     
     A = np.array([[.6, .4],
                   [.5, .5]])
@@ -51,7 +49,7 @@ if __name__ == "__main__":
     B = np.array([[.2, .4, .4],  # Emission probs being at hot
                   [.5, .4, .1]]) # Emission probs being at cold 
 
-    hmm = HiddenMarkovModel(Q=Q, O=O, A=A, B=B, pi=pi)
+    hmm = HiddenMarkovModel(A=A, B=B, pi=pi)
 
     observation_sequence_test(hmm)
     sample_test(key, hmm)

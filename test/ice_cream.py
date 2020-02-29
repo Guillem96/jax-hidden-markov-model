@@ -4,15 +4,34 @@ import jax
 import jax.numpy as np
 
 from hmm import HiddenMarkovModel
+from hmm import functional as F
 
 
 def decode_test(hmm: HiddenMarkovModel):  
     print(hmm.decode(np.array([2, 0, 2])))
-    # print(f'Decodification of {[2, 0, 2]} is {likelihood:.3f}')
+
 
 def likelihood_test(hmm: HiddenMarkovModel):
     likelihood = hmm.likelihood(np.array([2, 0, 2]))
     print(f'Likelihood of {[2, 0, 2]} is {likelihood:.3f}')
+
+
+def likelihood_gradients(key, hmm: HiddenMarkovModel):
+    lh_fn = jax.value_and_grad(F.likelihood)
+    
+    key, sk = jax.random.split(key)
+    Os = jax.random.randint(sk, shape=(4, 3), minval=0, maxval=3)
+    
+    print(lh_fn(hmm, Os[0]))
+
+
+def batched_likelihood(key: np.ndarray, hmm: HiddenMarkovModel):
+    v_likelihood = jax.vmap(F.likelihood, in_axes=(None, 0))
+    
+    key, sk = jax.random.split(key)
+    Os = jax.random.randint(sk, shape=(4, 3), minval=0, maxval=3)
+    Os = np.vstack([Os, np.array([2, 0, 2])])
+    print(v_likelihood(hmm, Os))
 
 
 def sample_test(key, hmm: HiddenMarkovModel):
@@ -55,6 +74,10 @@ if __name__ == "__main__":
 
     observation_sequence_test(hmm)
     sample_test(key, hmm)
+    
     likelihood_test(hmm)
+    likelihood_gradients(key, hmm)
+    batched_likelihood(key, hmm)
+
     decode_test(hmm)
     # draw_test(hmm)

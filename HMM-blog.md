@@ -16,13 +16,13 @@ $P(q_i=a|q_{i-1}) $
 
 Figure 1 shows an example of how a Markov Chain looks like.
 
-![Markov Chain figure](https://raw.githubusercontent.com/Guillem96/jax-hidden-markov-model/img/mdp.jpg)
+![Markov Chain figure](https://raw.githubusercontent.com/Guillem96/jax-hidden-markov-model/master/img/mdp.jpg)
 
 *Figure 1. Markov chain (Slide coming from Berkeley Reinforcement Learning course)*
 
 The HMM is based on augmenting the Markov chain framework. A Markov chain is useful when we need to compute a probability for a sequence of observable events, but sometimes we cannot see what is happening under the hoods. Imagine, that every day, we see a different animal, for instance, the first day we see an ant, the second day a snail, and finally a white fox (Figure 2). What is happening here? Does seeing an ant modifies the probability a snail the following day? It doesn't, what is modifying the probabilities is the weather. Depending on if it is sunny, rainy or snowy we the probabilities of seeing a specific animal varies.
 
-![HMM Animals example](https://raw.githubusercontent.com/Guillem96/jax-hidden-markov-model/img/HMM%20Example.png)
+![HMM Animals example](https://raw.githubusercontent.com/Guillem96/jax-hidden-markov-model/master/img/HMM%20Example.png)
 
 *Figure 2. HMM animals example*
 
@@ -75,7 +75,7 @@ animals_hmm.draw(Q_names, V)
 
 
 
-![svg](https://raw.githubusercontent.com/Guillem96/jax-hidden-markov-model/HMM%20Blog%20post_files/HMM%20Blog%20post_3_0.svg)
+![svg](https://raw.githubusercontent.com/Guillem96/jax-hidden-markov-model/master/HMM%20Blog%20post_files/HMM%20Blog%20post_3_0.svg)
 
 
 

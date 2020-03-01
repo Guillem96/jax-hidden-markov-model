@@ -202,10 +202,13 @@ class HiddenMarkovModel(NamedTuple):
         
         graph = Digraph(name='Hidden Markov Model', format='svg')
 
+        Q = np.arange(self.A.shape[0])
+        O = np.arange(self.B.shape[1])
+
         # Add hidden states nodes
         with graph.subgraph(name='hidden_states') as c:
             c.node_attr.update(style='filled', color='lightblue')
-            for q in self.Q:
+            for q in Q:
                 c.node('q-' + str(q), 
                        label=(Q_idx2name and str(Q_idx2name[q])))
         
@@ -213,7 +216,7 @@ class HiddenMarkovModel(NamedTuple):
         with graph.subgraph(name='observations') as obs_g:
             obs_g.graph_attr.update(rankdir='LR')
             obs_g.node_attr.update(style='filled', color='#d3f0ce')
-            for o in self.O:
+            for o in O:
                  obs_g.node('o-' + str(o), 
                             label=(O_idx2name and str(O_idx2name[o])))
 

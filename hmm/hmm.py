@@ -32,6 +32,18 @@ class HiddenMarkovModel(NamedTuple):
     B: np.ndarray = None 
     pi: np.ndarray = None
 
+    @property
+    def normalized_A(self) -> np.ndarray:
+        return jax.nn.log_softmax(self.A, axis=-1)
+    
+    @property
+    def normalized_B(self) -> np.ndarray:
+        return jax.nn.log_softmax(self.B, axis=-1)
+    
+    @property
+    def normalized_pi(self) -> np.ndarray:
+        return jax.nn.log_softmax(self.pi, axis=-1)
+     
     @classmethod
     def random_init(cls, 
                     key: np.ndarray, 
@@ -144,6 +156,26 @@ class HiddenMarkovModel(NamedTuple):
             and the sequence of hidden states
         """
         return F.decode(self, O)
+
+    def __add__(self, other: 'HiddenMarkovModel')-> 'HiddenMarkovModel':
+        return HiddenMarkovModel(
+            A=self.A + other.A,
+            B=self.B + other.B,
+            pi=self.pi + other.pi)
+    
+    def __sub__(self, other: 'HiddenMarkovModel') -> 'HiddenMarkovModel':
+        return HiddenMarkovModel(
+            A=self.A - other.A,
+            B=self.B - other.B,
+            pi=self.pi - other.pi)
+
+    def __mul__(self, other: float) -> 'HiddenMarkovModel':
+        assert isinstance(other, float), 'Only scalar multiplication is allowed'
+
+        return HiddenMarkovModel(
+            A=self.A * other,
+            B=self.B * other,
+            pi=self.pi * other)
 
     def draw(self,
              Q_idx2name: Mapping[int, str] = None,

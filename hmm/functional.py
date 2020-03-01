@@ -6,6 +6,14 @@ import jax.numpy as np
 from hmm import utils
 
 
+def _logdotexp(A, B):
+    max_A = np.max(A)
+    max_B = np.max(B)
+    C = np.dot(np.exp(A - max_A), np.exp(B - max_B))
+    C = np.log(C)
+    C += max_A + max_B
+    return C
+
 def observations_sequence_proba(hmm: 'HiddenMarkovModel', 
                                 O: np.ndarray,
                                 known_Q: np.ndarray) -> float:
@@ -28,16 +36,17 @@ def observations_sequence_proba(hmm: 'HiddenMarkovModel',
     float
         The probability of observing O
     """
-    start_prob = hmm.pi[known_Q[0]]
+    start_prob = hmm.normalized_pi[known_Q[0]]
     if known_Q.shape[0] > 1:
         transitions = np.array(list(zip(known_Q[:-1], known_Q[1:])))
-        known_Q_prob = start_prob * np.prod(hmm.A[transitions])
+        known_Q_prob = start_prob + np.sum(hmm.normalized_A[transitions])
     else:
         known_Q_prob = start_prob
-    return known_Q_prob * np.prod(hmm.B[known_Q, O])
+    return known_Q_prob + np.sum(hmm.normalized_B[known_Q, O])
 
 
-def sample(hmm: 'HiddenMarkovModel', key: np.ndarray, timesteps: int) -> np.ndarray:
+def sample(hmm: 'HiddenMarkovModel', 
+           key: np.ndarray, timesteps: int) -> np.ndarray:
     """
     Sample an observation at each timestep according to the defined
     probabilites
@@ -57,30 +66,26 @@ def sample(hmm: 'HiddenMarkovModel', key: np.ndarray, timesteps: int) -> np.ndar
         An array of shape [timesteps,] containing the observations at each
         timesteps
     """
-    def sample_observation(key, qt):
-        emission_probs = hmm.B[qt]
-        return utils.sample(key, hmm_O, emission_probs)
+   
+    hmm_Q = np.arange(hmm.A.shape[0])
+    hmm_O = np.arange(hmm.B.shape[1])
     
-    def sample_qt(key, qt_1):
-        transition_probs = hmm.A[qt_1]
-        return utils.sample(key, hmm_Q, transition_probs)
-    
-    hmm_Q = np.range(hmm.A.shape[0])
-    hmm_O = np.range(hmm.B.shape[1])
-    
+    A = hmm.normalized_A
+    B = hmm.normalized_B
     O = []
 
     # Sample the initial hidden state according to pi prob distribution
     key, subkey = jax.random.split(key)
-    q_0 = utils.sample(subkey, hmm_Q, hmm.pi)
+    q_0 = utils.sample(subkey, hmm_Q, hmm.normalized_pi)
+
     qt = q_0
     for t in range(timesteps):
         key, b_key, q_key = jax.random.split(key, 3)
         # At each hidden state qt, sample one observation according to 
         # emission prob B
-        O.append(sample_observation(b_key, qt))
+        O.append(utils.sample(b_key, hmm_O, B[qt]))
         # Sample the next hidden state
-        qt = sample_qt(q_key, qt)
+        qt = utils.sample(q_key, hmm_O, A[qt])
     
     return np.array(O)
 
@@ -102,20 +107,22 @@ def likelihood(hmm: 'HiddenMarkovModel', O: np.ndarray) -> float:
     float
         Likelihood of observing the specified sequence of observations
     """
-    hmm_Q = np.range(hmm.A.shape[0])
-    
+    hmm_Q = np.arange(hmm.A.shape[0])
+    A = hmm.normalized_A
+    B = hmm.normalized_B
+
     timesteps = len(O)
     alpha = np.zeros((len(hmm_Q), timesteps))
   
     # Compute the probabilities at timestep = 0
-    prob = hmm.pi[hmm_Q] * hmm.B[hmm_Q, O[0]]
+    prob = hmm.normalized_pi[hmm_Q] + B[hmm_Q, O[0]]
     alpha = jax.ops.index_update(alpha, jax.ops.index[hmm_Q, 0], prob)
 
     for t in range(1, timesteps):
-        new_alpha = np.dot(alpha[:, t - 1], hmm.A) * hmm.B[:, O[t]]
-        alpha = jax.ops.index_add(alpha, jax.ops.index[:, t], new_alpha)
+        new_alpha = _logdotexp(alpha[:, t - 1], A) + B[:, O[t]]
+        alpha = jax.ops.index_update(alpha, jax.ops.index[:, t], new_alpha)
 
-    return np.sum(alpha[:, -1])
+    return jax.scipy.special.logsumexp(alpha[:, -1])
 
 
 def decode(hmm: 'HiddenMarkovModel', O: np.ndarray) -> np.ndarray:
@@ -138,21 +145,22 @@ def decode(hmm: 'HiddenMarkovModel', O: np.ndarray) -> np.ndarray:
         Returns a tuple containing the most probable sequence probability 
         and the sequence of hidden states
     """
-    hmm_Q = np.range(hmm.A.shape[0])
-    hmm_O = np.range(hmm.B.shape[1])
-    
+    hmm_Q = np.arange(hmm.A.shape[0])
+    hmm_O = np.arange(hmm.B.shape[1])
+    A = hmm.normalized_A
+    B = hmm.normalized_B
+
     timesteps = len(O)
     v = np.zeros((len(hmm_Q), timesteps))
     backpointer = np.zeros((len(hmm_Q), timesteps), dtype='int32')
 
     # Compute the probabilities at timestep = 0
-    prob = hmm.pi[hmm_Q] * hmm.B[hmm_Q, O[0]]
-    v = jax.ops.index_update(v, jax.ops.index[hmm_Q, 0], prob)
+    prob = hmm.normalized_pi + B[:, O[0]]
+    v = jax.ops.index_update(v, jax.ops.index[:, 0], prob)
 
     for t in range(1, timesteps):
         for qt in hmm_Q:
-            new_vt = (v[hmm_Q, t - 1] * 
-                        hmm.A[hmm_Q, qt] * hmm.B[qt, O[t]])
+            new_vt = v[:, t - 1] + A[:, qt] + B[qt, O[t]]
             v = jax.ops.index_update(
                 v, jax.ops.index[qt, t], np.max(new_vt))
 

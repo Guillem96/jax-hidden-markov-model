@@ -13,16 +13,31 @@ def decode_test(hmm: HiddenMarkovModel):
 
 def likelihood_test(hmm: HiddenMarkovModel):
     likelihood = hmm.likelihood(np.array([2, 0, 2]))
-    print(f'Likelihood of {[2, 0, 2]} is {likelihood:.3f}')
+    print(f'Likelihood of {[2, 0, 2]} is {np.exp(likelihood):.3f}')
 
 
-def likelihood_gradients(key, hmm: HiddenMarkovModel):
-    lh_fn = jax.value_and_grad(F.likelihood)
+def likelihood_gradients(hmm: HiddenMarkovModel):
+    # Maximize likelihood of [0, 2, 0]
+    O = np.array([0, 2, 0])
+
+    def nll(markov, O_seq):
+        return -F.likelihood(markov, O_seq)
+
+    lh_fn = jax.value_and_grad(nll)
     
-    key, sk = jax.random.split(key)
-    Os = jax.random.randint(sk, shape=(4, 3), minval=0, maxval=3)
+    # Compute the probability without optimizing according to
+    # negative log likelihood
+    value = hmm.likelihood(O)
+    print('Probability of [0, 2, 0]:', np.exp(value))
+
+    for i in range(30):
+        value, grad = lh_fn(hmm, O)
+        hmm = hmm - grad * 1e-1
     
-    print(lh_fn(hmm, Os[0]))
+    # See how the probability has increased after 30 steps
+    value = hmm.likelihood(O)
+    print('Probability of [0, 2, 0]:', np.exp(value))
+
 
 
 def batched_likelihood(key: np.ndarray, hmm: HiddenMarkovModel):
@@ -42,10 +57,10 @@ def sample_test(key, hmm: HiddenMarkovModel):
 
 def observation_sequence_test(hmm: HiddenMarkovModel):
     
-    prob = hmm.observations_sequence_proba(
+    log_prob = hmm.observations_sequence_proba(
         O=np.array([2, 0, 1]),
         known_Q=np.array([0, 0, 1]))
-    print(prob)
+    print(np.exp(log_prob))
 
 
 def draw_test(hmm: HiddenMarkovModel):
@@ -65,7 +80,7 @@ if __name__ == "__main__":
     A = np.array([[.6, .4],
                   [.5, .5]])
 
-    B = np.array([[.2, .4, .4],  # Emission probs being at hot
+    B = np.array([[.0, .5, .5],  # Emission probs being at hot
                   [.5, .4, .1]]) # Emission probs being at cold 
 
     hmm = HiddenMarkovModel(A=A, B=B, pi=pi)
@@ -74,8 +89,8 @@ if __name__ == "__main__":
     sample_test(key, hmm)
     
     likelihood_test(hmm)
-    likelihood_gradients(key, hmm)
+    likelihood_gradients(hmm)
     batched_likelihood(key, hmm)
 
     decode_test(hmm)
-    # draw_test(hmm)
+    # # draw_test(hmm)

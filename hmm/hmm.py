@@ -217,7 +217,7 @@ class HiddenMarkovModel(NamedTuple):
             obs_g.graph_attr.update(rankdir='LR')
             obs_g.node_attr.update(style='filled', color='#d3f0ce')
             for o in O:
-                 obs_g.node('o-' + str(o), 
+                obs_g.node('o-' + str(o), 
                             label=(O_idx2name and str(O_idx2name[o])))
 
         # Draw the starting node
@@ -227,14 +227,14 @@ class HiddenMarkovModel(NamedTuple):
 
         matrix_it = range(self.B.shape[0]), range(self.B.shape[1])
         for i, j in itertools.product(*matrix_it): 
-            e_p = self.B[i, j]
+            e_p = np.exp(self.normalized_B[i, j])
             if e_p > 0:
                 graph.edge('q-' + str(i), 
                            'o-' + str(j), label=f'{e_p:.2f}')
 
         matrix_it = range(self.A.shape[0]), range(self.A.shape[1])
         for i, j in itertools.product(*matrix_it):
-            p = self.A[i, j]
+            p = np.exp(self.normalized_A[i, j])
             if p > 0:
                 graph.edge('q-' + str(i), 'q-' + str(j), label=f'{p:.2f}')
             

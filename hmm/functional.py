@@ -70,22 +70,20 @@ def sample(hmm: 'HiddenMarkovModel',
     hmm_Q = np.arange(hmm.A.shape[0])
     hmm_O = np.arange(hmm.B.shape[1])
     
-    A = hmm.normalized_A
-    B = hmm.normalized_B
     O = []
 
     # Sample the initial hidden state according to pi prob distribution
     key, subkey = jax.random.split(key)
-    q_0 = utils.sample(subkey, hmm_Q, hmm.normalized_pi)
+    q_0 = utils.sample(subkey, hmm_Q, hmm.pi)
 
     qt = q_0
     for t in range(timesteps):
         key, b_key, q_key = jax.random.split(key, 3)
         # At each hidden state qt, sample one observation according to 
         # emission prob B
-        O.append(utils.sample(b_key, hmm_O, B[qt]))
+        O.append(utils.sample(b_key, hmm_O, hmm.B[qt]))
         # Sample the next hidden state
-        qt = utils.sample(q_key, hmm_O, A[qt])
+        qt = utils.sample(q_key, hmm_Q, hmm.A[qt])
     
     return np.array(O)
 
@@ -115,13 +113,13 @@ def likelihood(hmm: 'HiddenMarkovModel', O: np.ndarray) -> float:
     alpha = np.zeros((len(hmm_Q), timesteps))
   
     # Compute the probabilities at timestep = 0
-    prob = hmm.normalized_pi[hmm_Q] + B[hmm_Q, O[0]]
+    prob = hmm.normalized_pi + B[:, O[0]]
     alpha = jax.ops.index_update(alpha, jax.ops.index[hmm_Q, 0], prob)
 
     for t in range(1, timesteps):
         new_alpha = _logdotexp(alpha[:, t - 1], A) + B[:, O[t]]
         alpha = jax.ops.index_update(alpha, jax.ops.index[:, t], new_alpha)
-
+    
     return jax.scipy.special.logsumexp(alpha[:, -1])
 
 

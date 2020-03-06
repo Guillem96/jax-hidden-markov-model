@@ -157,7 +157,7 @@ class HiddenMarkovModel(NamedTuple):
         """
         return F.decode(self, O)
 
-    def __add__(self, other: 'HiddenMarkovModel')-> 'HiddenMarkovModel':
+    def __add__(self, other: 'HiddenMarkovModel') -> 'HiddenMarkovModel':
         return HiddenMarkovModel(
             A=self.A + other.A,
             B=self.B + other.B,

@@ -88,7 +88,7 @@ def sample(hmm: 'HiddenMarkovModel',
     return np.array(O)
 
 
-def likelihood(hmm: 'HiddenMarkovModel', O: np.ndarray) -> float:
+def likelihood(hmm: 'HiddenMarkovModel', O: np.ndarray, length: int) -> float:
     """
     Implementation of forward algorithm to compute the likelihood of 
     the sequence of observations O
@@ -99,6 +99,9 @@ def likelihood(hmm: 'HiddenMarkovModel', O: np.ndarray) -> float:
         NamedTuple representing an HMM
     O: np.ndarray
         Sequence of observations
+    length: int
+        Useful when working with padding. Specify to avoid computing the 
+        paddings probability
 
     Returns
     -------
@@ -120,7 +123,8 @@ def likelihood(hmm: 'HiddenMarkovModel', O: np.ndarray) -> float:
         new_alpha = _logdotexp(alpha[:, t - 1], A) + B[:, O[t]]
         alpha = jax.ops.index_update(alpha, jax.ops.index[:, t], new_alpha)
     
-    return jax.scipy.special.logsumexp(alpha[:, -1])
+    log_probs = jax.scipy.special.logsumexp(alpha, axis=0)
+    return log_probs[length - 1]
 
 
 def decode(hmm: 'HiddenMarkovModel', O: np.ndarray) -> np.ndarray:

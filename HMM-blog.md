@@ -38,6 +38,32 @@ As Linus would say: *Talk is cheap, show me code*. And this is exactly what I am
 
 
 ```python
+!git clone https://github.com/Guillem96/jax-hidden-markov-model
+
+import sys
+sys.path.append('jax-hidden-markov-model')
+```
+
+    Cloning into 'jax-hidden-markov-model'...
+    remote: Enumerating objects: 102, done.[K
+    remote: Counting objects: 100% (102/102), done.[K
+    remote: Compressing objects: 100% (71/71), done.[K
+    remote: Total 102 (delta 45), reused 72 (delta 27), pack-reused 0[K
+    Receiving objects: 100% (102/102), 353.17 KiB | 1.34 MiB/s, done.
+    Resolving deltas: 100% (45/45), done.
+
+
+
+```python
+import jax
+print('JAX is running on:', jax.lib.xla_bridge.get_backend().platform)
+```
+
+    JAX is running on: gpu
+
+
+
+```python
 import hmm
 import jax.numpy as np
 
@@ -61,10 +87,6 @@ pi = np.array([.3, .3, .4])
 animals_hmm = hmm.HiddenMarkovModel(A=A, B=B, pi=pi)
 ```
 
-    /mnt/c/Users/Guillem/Desktop/projects/jax/jax/lib/xla_bridge.py:122: UserWarning: No GPU/TPU found, falling back to CPU.
-      warnings.warn('No GPU/TPU found, falling back to CPU.')
-
-
 May be at this point the code above is a bin unclear, but if we plot what we have declared the things will become a lot clearer.
 
 
@@ -74,11 +96,12 @@ animals_hmm.draw(Q_names, V)
 
 
 
-<img src="https://raw.githubusercontent.com/Guillem96/jax-hidden-markov-model/master/img/HMM-blog_files/HMM-blog_3_0.svg"/>
+
+<img src="https://raw.githubusercontent.com/Guillem96/jax-hidden-markov-model/master/img/HMM-blog_files/HMM-blog_5_0.svg"/>
 
 
 
-Looking at the plot we can see the probabilities ($\pi$) of starting at specific hidden state, the transition probabilites and the emission probabilities being at each hidden state.
+Looking at the plot we can see the probabilities ($\pi$) of starting at specific hidden state, the transition probabilities and the emission probabilities being at each hidden state.
 
 That's all for the Hidden Markov Models introduction. If you want to learn more about them, IMO this [4] notes are a pretty good resource.
 
@@ -100,7 +123,7 @@ Similar to other Natural Language Processing (NLP) tasks, we cannot work using c
 ```python
 import string
 
-letters = string.ascii_lowercase + '-'
+letters = string.ascii_lowercase + '-+'
 letter2idx = {o: i for i, o in enumerate(letters, start=1)} # Reserve 0 for padding
 
 print('hello =', ','.join(str(letter2idx[o]) for o in 'hello'))
@@ -113,9 +136,28 @@ Once we have a way of converting words into numbers, we can load the dataset and
 
 
 ```python
-import random
+!wget https://gist.githubusercontent.com/mkulakowski2/4289437/raw/1bb4d7f9ee82150f339f09b5b1a0e6823d633958/positive-words.txt
+```
 
-with open('data/words.txt') as f:
+    --2020-03-08 10:09:41--  https://gist.githubusercontent.com/mkulakowski2/4289437/raw/1bb4d7f9ee82150f339f09b5b1a0e6823d633958/positive-words.txt
+    Resolving gist.githubusercontent.com (gist.githubusercontent.com)... 151.101.0.133, 151.101.64.133, 151.101.128.133, ...
+    Connecting to gist.githubusercontent.com (gist.githubusercontent.com)|151.101.0.133|:443... connected.
+    HTTP request sent, awaiting response... 200 OK
+    Length: 20630 (20K) [text/plain]
+    Saving to: ‘positive-words.txt.1’
+    
+    positive-words.txt. 100%[===================>]  20.15K  --.-KB/s    in 0.005s  
+    
+    2020-03-08 10:09:41 (4.26 MB/s) - ‘positive-words.txt.1’ saved [20630/20630]
+    
+
+
+
+```python
+import random
+random.seed(0)
+
+with open('positive-words.txt') as f:
     dataset = [w.strip() for w in f.readlines() 
                if w.strip() and not w.startswith(';')]
 
@@ -123,8 +165,8 @@ print('Number of words:', len(dataset))
 print(random.sample(dataset, 5))
 ```
 
-    Number of words: 2005
-    ['humourous', 'appreciatively', 'amply', 'pampers', 'nicer']
+    Number of words: 2006
+    ['successfully', 'gallant', 'rosy', 'tops', 'guarantee']
 
 
 
@@ -137,34 +179,38 @@ for w in random_words:
     print(f'{w} =', ','.join(map(str, word2idx(w))))    
 ```
 
-    pride = 16,18,9,4,5
-    considerate = 3,15,14,19,9,4,5,18,1,20,5
-    skillful = 19,11,9,12,12,6,21,12
-    elegance = 5,12,5,7,1,14,3,5
-    cute = 3,21,20,5
+    altruistic = 1,12,20,18,21,9,19,20,9,3
+    encouragingly = 5,14,3,15,21,18,1,7,9,14,7,12,25
+    won = 23,15,14
+    jubilant = 10,21,2,9,12,1,14,20
+    innocuous = 9,14,14,15,3,21,15,21,19
 
 
 Now we can easily convert a word to numbers. Pretty interesting, isn't it? But we want to go a bit further. 
 
 Usually, Machine Learning (ML) models are trained using *batches* of data, and HMMs are not different. So, before moving forward, we need a function that samples $n$ words and packs them into a single tensor. Also, if you are familiar with sequences, you should now that to pack heterogeneous sequences into a single tensor they must have the same size, in other words, they all need to be of size $n$. To achieve that, we usually pad sequences to match the larger sequence inside the batch, which exactly $n$ elements. 
 
+In addition, to avoid computing probabilities involving padding, we keep track of the length of each word in the batch. This will allow us to stop operating at a determined timestep of the sequences (words) and therefore avoid computations with padding.
+
 
 ```python
-def sampler(batch_size=32, pad_val=0):
+def sampler(batch_size=32, pad_val=-1):
     batch = random.sample(dataset, batch_size)
     max_len = max(len(o) for o in batch)
     padded_batch = []
+    lengths = []
     for b in batch:
         offset = max_len - len(b)
+        lengths.append(len(b))
         padded_batch.append(word2idx(b) + [pad_val] * offset)
     
-    return np.array(padded_batch)
+    return np.array(padded_batch), np.array(lengths).astype('int32')
 
 sample_batch = sampler()
-print('Batch shape [N_SAMPLES, SEQUENCE_LEN]:', sample_batch.shape)
+print('Batch shape [N_SAMPLES, SEQUENCE_LEN]:', sample_batch[0].shape)
 ```
 
-    Batch shape [N_SAMPLES, SEQUENCE_LEN]: (32, 13)
+    Batch shape [N_SAMPLES, SEQUENCE_LEN]: (32, 15)
 
 
 We are done here. Let's move on to the training part.
@@ -185,28 +231,28 @@ key = jax.random.PRNGKey(0)
 key, subkey = jax.random.split(key)
 
 words_hmm = hmm.HiddenMarkovModel.random_init(
-    key, n_hidden_states=64, n_observations=len(letters) + 1)
+    key, n_hidden_states=16, n_observations=len(letters) + 1)
 ```
 
 To train our HMM, what we need to do, is to tweak the parameters ($A$, $B$ and $\pi$) so they maximize the probability of training words to appear.
 
-If we now sample a word, we are going to see that it does not make any sense. This is because HMM is randomly intialized.
+If we now sample a word, we are going to see that it does not make any sense. This is because HMM is randomly initialized.
 
 
 ```python
 def decode_word(indices):
-    vocab = ['<pad>'] + list(letters)
-    return ''.join(vocab[i] for i in indices)
+    vocab = list(letters + '-+')
+    return ''.join(vocab[i] if i >= 0 else '<p>' for i in indices)
 
 key, subkey = jax.random.split(key)
 generated_word = words_hmm.sample(subkey, timesteps=5) # Sample a word with 5 characters
 print('Generated word:', decode_word(generated_word.reshape(-1)))
 ```
 
-    Generated word: qevc-
+    Generated word: t+cuu
 
 
-In order to create, words with sense, or at least words pretending to have sense, we are going to maximize the probability of training words. To do so, we are going to use Stochastic Gradient Descent (SGD). More precicely, we are going to compute the gradients of the HMM parameters with respect of Negative Log Likelihood (NLL), and substract a small amount of the gradient to our parameters to maximize the training words likelihood.
+In order to create, words with sense, or at least words pretending to have sense, we are going to maximize the probability of training words. To do so, we are going to use Stochastic Gradient Descent (SGD). More precisely, we are going to compute the gradients of the HMM parameters with respect of Negative Log Likelihood (NLL), and subtract a small amount of the gradient to our parameters to maximize the training words likelihood.
 
 $w_{t+1} = w_t - \alpha \frac{\partial L(w_t)}{\partial w_t}$
 
@@ -223,19 +269,23 @@ Natively, my `hmm` package does not support *batching* with `likelihood` method.
 from functools import partial
 import hmm.functional as F
 
-v_likelihood = jax.vmap(F.likelihood, in_axes=(None, 0))
+# To make F.likelihood to work with batch, we have to take care of all of its 
+# arguments specifying which dimension we want the batch to occur.
+# For instance, we do not want the hmm to be batched, but words and lengths should
+# be batched on axis 0 
+v_likelihood = jax.vmap(F.likelihood, in_axes=(None, 0, 0))
 
 # Computes the NLL given the HMM and training words
-def forward(hmm, words):
+def forward(hmm, words, lengths):
     # hmm package works with log probabilities,
     # so likelihood method returns the log probability instead of the *standard one*
-    log_prob = v_likelihood(hmm, words)
+    log_prob = v_likelihood(hmm, words, lengths)
     # To compute NLL we just have to neg the probability returned from the 
     # likelihood method
     return -log_prob.mean()
 
 # Partial derivative of first arg (HMM params)
-backward = jax.value_and_grad(forward)
+backward = jax.jit(jax.value_and_grad(forward))
 ```
 
 If we now call `backward`, the function will return us the loss value and the gradients.
@@ -243,113 +293,104 @@ If we now call `backward`, the function will return us the loss value and the gr
 
 ```python
 sample_batch = sampler(batch_size=4)
-losses, grads = backward(words_hmm, sample_batch)
+losses, grads = backward(words_hmm, *sample_batch)
 print('Loss:', losses)
 ```
 
-    Loss: 33.322784
+    Loss: 37.04048
 
 
-If we apply a simple SGD step with a pretty high learning rate $\alpha$, we are going to see how the loss decreases.
+If we apply a set of SGD steps with a pretty high learning rate $\alpha$, we are going to see how the loss decreases.
 
 
 ```python
-alpha = 1e-1
-words_hmm = words_hmm - grads * alpha
-losses, grads = backward(words_hmm, sample_batch)
+@jax.jit
+def train_step(h, words, length):
+  losses, grads = backward(h, words, length)
+  h = h - grads * 1e-1
+  return losses, h
+
+for _ in range(200):
+  losses, words_hmm = train_step(words_hmm, *sample_batch)
+
 print('Loss:', losses)
 ```
 
-    Loss: 33.311375
+    Loss: 33.053852
 
 
-Reapeat SGD for 1000 steps.
+Repeat SGD steps through out all your dataset ten times.
 
 
 ```python
-alpha = 1e-2
-running_loss = 0
-training_steps = 5000
+epochs = 10
+batch_size = 16
+training_steps = len(dataset) // batch_size
 
-for step in range(training_steps):
-    loss, grads = backward(words_hmm, sampler())
-    words_hmm = words_hmm - grads * alpha
-    running_loss += loss
-    
-    if (step + 1) % 10 == 0:
-        mean_loss = running_loss / step
-        print(f'Step [{step}/{training_steps}] Loss: {mean_loss:.4f}')
+for epoch in range(epochs):
+  running_loss = 0
+  for step in range(training_steps):
+      loss, words_hmm = train_step(words_hmm, *sampler())
+      running_loss += loss
+      
+      if (step + 1) % 1000 == 0:
+          mean_loss = running_loss / step
+          print(f'Step [{epoch}] [{step}/{training_steps}] Loss: {mean_loss:.4f}')
+          for i in range(3):
+            length = random.randint(4, 10)
+            key, subkey = jax.random.split(key)
+            generated_w = words_hmm.sample(subkey, length).reshape(-1)
+            print('New word:', decode_word(generated_w))
 ```
 
-    Step [9/5000] Loss: 52.9000
-    Step [19/5000] Loss: 49.2192
-    Step [29/5000] Loss: 48.6336
-    Step [39/5000] Loss: 48.4212
-    Step [49/5000] Loss: 48.4863
-    Step [59/5000] Loss: 48.4650
-    Step [69/5000] Loss: 48.6809
-    Step [79/5000] Loss: 48.2119
-    Step [89/5000] Loss: 47.8807
-    Step [99/5000] Loss: 47.5494
-    Step [109/5000] Loss: 47.3936
-    Step [119/5000] Loss: 47.2317
-    Step [129/5000] Loss: 47.1183
-    Step [139/5000] Loss: 47.0642
-    Step [149/5000] Loss: 46.8623
-    Step [159/5000] Loss: 46.7237
-    Step [169/5000] Loss: 46.6001
-    Step [179/5000] Loss: 46.6507
-    Step [189/5000] Loss: 46.6429
-    Step [199/5000] Loss: 46.4572
-    Step [209/5000] Loss: 46.3333
-    Step [219/5000] Loss: 46.1755
-    Step [229/5000] Loss: 46.1553
-    Step [239/5000] Loss: 46.2286
-    Step [249/5000] Loss: 46.1521
-    Step [259/5000] Loss: 46.1531
-    Step [269/5000] Loss: 46.1175
-    Step [279/5000] Loss: 46.1050
-    Step [289/5000] Loss: 46.0712
-    Step [299/5000] Loss: 46.0073
-    Step [309/5000] Loss: 45.9971
-    Step [319/5000] Loss: 45.9569
-    Step [329/5000] Loss: 45.9082
-    Step [339/5000] Loss: 45.8236
-    Step [349/5000] Loss: 45.8143
-    Step [359/5000] Loss: 45.8647
-    Step [369/5000] Loss: 45.8092
-    Step [379/5000] Loss: 45.7897
-    Step [389/5000] Loss: 45.7953
-    Step [399/5000] Loss: 45.7903
-    Step [409/5000] Loss: 45.7251
-    Step [419/5000] Loss: 45.7212
-    Step [429/5000] Loss: 45.7024
-    Step [439/5000] Loss: 45.6630
-    Step [449/5000] Loss: 45.6446
-    Step [459/5000] Loss: 45.6398
-    Step [469/5000] Loss: 45.6266
-    Step [479/5000] Loss: 45.5948
-    Step [489/5000] Loss: 45.5753
-    Step [499/5000] Loss: 45.5740
-    Step [509/5000] Loss: 45.5890
-    Step [519/5000] Loss: 45.5976
-    Step [529/5000] Loss: 45.5766
-    Step [539/5000] Loss: 45.5446
-    Step [549/5000] Loss: 45.5142
-    Step [559/5000] Loss: 45.4555
-    Step [569/5000] Loss: 45.4520
-    Step [579/5000] Loss: 45.4429
-    Step [589/5000] Loss: 45.4182
-    Step [599/5000] Loss: 45.3763
-    Step [609/5000] Loss: 45.3235
-    Step [619/5000] Loss: 45.3372
-    Step [629/5000] Loss: 45.3463
-    Step [639/5000] Loss: 45.3267
-    Step [649/5000] Loss: 45.3413
-    Step [659/5000] Loss: 45.3132
-    Step [669/5000] Loss: 45.2796
-    Step [679/5000] Loss: 45.2691
-    Step [689/5000] Loss: 45.2800
+    Step [0] [999/5000] Loss: 25.5608
+    New word: zftzvnmnff
+    New word: pofm
+    New word: tiugset
+    Step [0] [1999/5000] Loss: 25.4192
+    New word: uofpmtfut
+    New word: fosfjg
+    New word: etotf
+    Step [0] [2999/5000] Loss: 25.3516
+    New word: djimpbjz
+    New word: jsdlf
+    New word: oufohvumfj
+    Step [0] [3999/5000] Loss: 25.2892
+    New word: ipouhoiffh
+    New word: stqslcrcq
+    New word: ubjsvbfcjo
+    Step [0] [4999/5000] Loss: 25.2462
+    New word: zdbijtf
+    New word: bjof
+    New word: pkn-
+    Step [1] [999/5000] Loss: 25.0463
+    New word: seoee
+    New word: cfnb
+    New word: uzof
+    Step [1] [1999/5000] Loss: 24.9568
+    New word: bfuzg
+    New word: mtjzfejsj
+    New word: bjemsvfdmv
+    Step [1] [2999/5000] Loss: 24.9208
+    New word: cjon
+    New word: bfsfzoi
+    New word: qugudpbfd
+    Step [1] [3999/5000] Loss: 24.9087
+    New word: ejnvb
+    New word: qeffptftnd
+    New word: ojzpot
+    Step [1] [4999/5000] Loss: 24.8793
+    New word: ghjsoo
+    New word: s-ge
+    New word: gwbozdu
+    Step [2] [999/5000] Loss: 24.6993
+    New word: xforfn
+    New word: bfjegbud
+    New word: swtdssqm
+    Step [2] [1999/5000] Loss: 24.6141
+    New word: tbjlsj
+    New word: gpbs
+    New word: ndtedne
 
 
 
@@ -358,6 +399,11 @@ key, subkey = jax.random.split(key)
 generated_word = words_hmm.sample(subkey, timesteps=5) # Sample a word with 5 characters
 print('Generated word:', decode_word(generated_word.reshape(-1)))
 ```
+
+We can see how our HMM is creating words that seems that they exists. This is because HMM has *understood* how our language works, in other words, we have created a language model capable of determining the probability of a word existing or not.
+
+That's all for today's blog post, I hope you enjoyed it and I am looking forward to see you again here.
+
 
 ## References
 

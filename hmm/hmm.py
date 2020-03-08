@@ -135,7 +135,7 @@ class HiddenMarkovModel(NamedTuple):
         float
             Likelihood of observing the specified sequence of observations
         """
-        return F.likelihood(self, O)
+        return F.likelihood(self, O, len(O))
 
     def decode(self, O: np.ndarray) -> np.ndarray:
         """
